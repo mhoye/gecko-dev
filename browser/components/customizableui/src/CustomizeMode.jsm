@@ -292,6 +292,12 @@ CustomizeMode.prototype = {
       return;
     }
 
+    if (this.resetting) {
+      LOG("Attempted to exit while we're resetting. " +
+          "We'll exit after resetting has finished.");
+      return;
+    }
+
     this._handler.isExitingCustomizeMode = true;
 
     CustomizableUI.removeListener(this);
@@ -485,7 +491,7 @@ CustomizeMode.prototype = {
     deck.addEventListener("transitionend", customizeTransitionEnd);
 
     if (gDisableAnimation) {
-      deck.setAttribute("fastcustomizeanimation", true);
+      this.document.getElementById("tab-view-deck").setAttribute("fastcustomizeanimation", true);
     }
     if (aEntering) {
       this.document.documentElement.setAttribute("customizing", true);
@@ -691,10 +697,10 @@ CustomizeMode.prototype = {
       wrapper.setAttribute("id", "wrapper-" + aNode.getAttribute("id"));
     }
 
-    if (aNode.hasAttribute("title")) {
-      wrapper.setAttribute("title", aNode.getAttribute("title"));
-    } else if (aNode.hasAttribute("label")) {
+    if (aNode.hasAttribute("label")) {
       wrapper.setAttribute("title", aNode.getAttribute("label"));
+    } else if (aNode.hasAttribute("title")) {
+      wrapper.setAttribute("title", aNode.getAttribute("title"));
     }
 
     if (aNode.hasAttribute("flex")) {
@@ -885,6 +891,9 @@ CustomizeMode.prototype = {
       this._updateEmptyPaletteNotice();
       this._showPanelCustomizationPlaceholders();
       this.resetting = false;
+      if (!this._wantToBeInCustomizeMode) {
+        this.exit();
+      }
     }.bind(this)).then(null, ERROR);
   },
 
@@ -1475,6 +1484,7 @@ CustomizeMode.prototype = {
       this._cancelDragActive(this._dragOverItem);
       this._dragOverItem = null;
     }
+    this._updateToolbarCustomizationOutline(this.window);
     this._showPanelCustomizationPlaceholders();
   },
 
@@ -1511,6 +1521,7 @@ CustomizeMode.prototype = {
         this._setGridDragActive(aItem, draggedItem, aValue);
       } else {
         let targetArea = this._getCustomizableParent(aItem);
+        this._updateToolbarCustomizationOutline(window, targetArea);
         let makeSpaceImmediately = false;
         if (!gDraggingInToolbars.has(targetArea.id)) {
           gDraggingInToolbars.add(targetArea.id);
@@ -1545,6 +1556,7 @@ CustomizeMode.prototype = {
     }
   },
   _cancelDragActive: function(aItem, aNextItem, aNoTransition) {
+    this._updateToolbarCustomizationOutline(aItem.ownerDocument.defaultView);
     let currentArea = this._getCustomizableParent(aItem);
     if (!currentArea) {
       return;
@@ -1676,7 +1688,15 @@ CustomizeMode.prototype = {
     let dragY = aEvent.clientY - this._dragOffset.y;
 
     // Ensure this is within the container
-    let bounds = expectedParent.getBoundingClientRect();
+    let boundsContainer = expectedParent;
+    // NB: because the panel UI itself is inside a scrolling container, we need
+    // to use the parent bounds (otherwise, if the panel UI is scrolled down,
+    // the numbers we get are in window coordinates which leads to various kinds
+    // of weirdness)
+    if (boundsContainer == this.panelUIContents) {
+      boundsContainer = boundsContainer.parentNode;
+    }
+    let bounds = boundsContainer.getBoundingClientRect();
     dragX = Math.min(bounds.right, Math.max(dragX, bounds.left));
     dragY = Math.min(bounds.bottom, Math.max(dragY, bounds.top));
 
@@ -1688,6 +1708,16 @@ CustomizeMode.prototype = {
       }
     } else {
       let positionManager = DragPositionManager.getManagerForArea(aAreaElement);
+      // Make it relative to the container:
+      dragX -= bounds.left;
+      // NB: but if we're in the panel UI, we need to use the actual panel
+      // contents instead of the scrolling container to determine our origin
+      // offset against:
+      if (expectedParent == this.panelUIContents) {
+        dragY -= this.panelUIContents.getBoundingClientRect().top;
+      } else {
+        dragY -= bounds.top;
+      }
       // Find the closest node:
       targetNode = positionManager.find(aAreaElement, dragX, dragY, aDraggedItemId);
     }
@@ -1771,7 +1801,36 @@ CustomizeMode.prototype = {
     while (oldPlaceholders.length) {
       contents.removeChild(oldPlaceholders[0]);
     }
-  }
+  },
+
+  /**
+   * Update toolbar customization targets during drag events to add or remove
+   * outlines to indicate that an area is customizable.
+   *
+   * @param aWindow                       The XUL window in which outlines should be updated.
+   * @param {Element} [aToolbarArea=null] The element of the customizable toolbar area to add the
+   *                                      outline to. If aToolbarArea is falsy, the outline will be
+   *                                      removed from all toolbar areas.
+   */
+  _updateToolbarCustomizationOutline: function(aWindow, aToolbarArea = null) {
+    // Remove the attribute from existing customization targets
+    for (let area of CustomizableUI.areas) {
+      if (CustomizableUI.getAreaType(area) != CustomizableUI.TYPE_TOOLBAR) {
+        continue;
+      }
+      let target = CustomizableUI.getCustomizeTargetForArea(area, aWindow);
+      target.removeAttribute("customizing-dragovertarget");
+    }
+
+    // Now set the attribute on the desired target
+    if (aToolbarArea) {
+      if (CustomizableUI.getAreaType(aToolbarArea.id) != CustomizableUI.TYPE_TOOLBAR)
+        return;
+      let target = CustomizableUI.getCustomizeTargetForArea(aToolbarArea.id, aWindow);
+      target.setAttribute("customizing-dragovertarget", true);
+    }
+  },
+
 };
 
 function __dumpDragData(aEvent, caller) {

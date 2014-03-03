@@ -246,7 +246,7 @@ IsVisualCharset(const nsCString& aCharset)
   // bother initializing members to 0.
 
 nsPresContext::nsPresContext(nsIDocument* aDocument, nsPresContextType aType)
-  : mType(aType), mDocument(aDocument), mMinFontSize(0),
+  : mType(aType), mDocument(aDocument), mBaseMinFontSize(0),
     mTextZoom(1.0), mFullZoom(1.0), mLastFontInflationScreenWidth(-1.0),
     mPageSize(-1, -1), mPPScale(1.0f),
     mViewportStyleOverflow(NS_STYLE_OVERFLOW_AUTO, NS_STYLE_OVERFLOW_AUTO),
@@ -302,7 +302,7 @@ nsPresContext::nsPresContext(nsIDocument* aDocument, nsPresContextType aType)
 
   // if text perf logging enabled, init stats struct
   PRLogModuleInfo *log = gfxPlatform::GetLog(eGfxLog_textperf);
-  if (log && PR_LOG_TEST(log, PR_LOG_WARNING)) {
+  if (log && log->level >= PR_LOG_WARNING) {
     mTextPerf = new gfxTextPerfMetrics();
   }
 
@@ -2462,7 +2462,7 @@ public:
                "DOMPaintEvent requested for a detached pres context");
     mList.TakeFrom(aList);
   }
-  NS_IMETHOD Run()
+  NS_IMETHOD Run() MOZ_OVERRIDE
   {
     // The pres context might have been detached during the delay -
     // that's fine, just don't fire the event.

@@ -259,8 +259,8 @@ ClientLayerManager::GetRemoteRenderer()
 void
 ClientLayerManager::Composite()
 {
-  if (CompositorChild* remoteRenderer = GetRemoteRenderer()) {
-    remoteRenderer->SendForceComposite();
+  if (LayerTransactionChild* manager = mForwarder->GetShadowManager()) {
+    manager->SendForceComposite();
   }
 }
 
@@ -376,6 +376,20 @@ ClientLayerManager::ForwardTransaction(bool aScheduleComposite)
 
         compositableChild->GetCompositableClient()
           ->SetDescriptorFromReply(ots.textureId(), ots.image());
+        break;
+      }
+      case EditReply::TReturnReleaseFence: {
+        const ReturnReleaseFence& rep = reply.get_ReturnReleaseFence();
+        FenceHandle fence = rep.fence();
+        PTextureChild* child = rep.textureChild();
+
+        if (!fence.IsValid() || !child) {
+          break;
+        }
+        RefPtr<TextureClient> texture = TextureClient::AsTextureClient(child);
+        if (texture) {
+          texture->SetReleaseFenceHandle(fence);
+        }
         break;
       }
 

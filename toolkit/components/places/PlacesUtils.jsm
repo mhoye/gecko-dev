@@ -1936,15 +1936,15 @@ TransactionItemCache.prototype = {
   postData: null,
   itemType: null,
   set uri(v)
-    this._uri = (v instanceof Ci.nsIURI ? NetUtil.newURI(v.spec) : null),
+    this._uri = (v instanceof Ci.nsIURI ? v.clone() : null),
   get uri()
     this._uri || null,
   set feedURI(v)
-    this._feedURI = (v instanceof Ci.nsIURI ? NetUtil.newURI(v.spec) : null),
+    this._feedURI = (v instanceof Ci.nsIURI ? v.clone() : null),
   get feedURI()
     this._feedURI || null,
   set siteURI(v)
-    this._siteURI = (v instanceof Ci.nsIURI ? NetUtil.newURI(v.spec) : null),
+    this._siteURI = (v instanceof Ci.nsIURI ? v.clone() : null),
   get siteURI()
     this._siteURI || null,
   set index(v)
@@ -1953,7 +1953,7 @@ TransactionItemCache.prototype = {
   get index()
     this._index != null ? this._index : PlacesUtils.bookmarks.DEFAULT_INDEX,
   set annotations(v)
-    this._annotations = Array.isArray(v) ? JSON.parse(JSON.stringify(v)) : null,
+    this._annotations = Array.isArray(v) ? Cu.cloneInto(v, {}) : null,
   get annotations()
     this._annotations || null,
   set tags(v)

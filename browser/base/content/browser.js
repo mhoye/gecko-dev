@@ -139,6 +139,9 @@ XPCOMUtils.defineLazyModuleGetter(this, "SafeBrowsing",
 XPCOMUtils.defineLazyModuleGetter(this, "gBrowserNewTabPreloader",
   "resource:///modules/BrowserNewTabPreloader.jsm", "BrowserNewTabPreloader");
 
+XPCOMUtils.defineLazyModuleGetter(this, "gCustomizationTabPreloader",
+  "resource:///modules/CustomizationTabPreloader.jsm", "CustomizationTabPreloader");
+
 XPCOMUtils.defineLazyModuleGetter(this, "PrivateBrowsingUtils",
   "resource://gre/modules/PrivateBrowsingUtils.jsm");
 
@@ -4243,7 +4246,7 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
 
   if (toolbarItem && toolbarItem.localName == "toolbarpaletteitem") {
     toolbarItem = toolbarItem.firstChild;
-  } else {
+  } else if (toolbarItem && toolbarItem.localName != "toolbar") {
     while (toolbarItem && toolbarItem.parentNode) {
       let parent = toolbarItem.parentNode;
       if ((parent.classList && parent.classList.contains("customization-target")) ||
@@ -4253,6 +4256,8 @@ function onViewToolbarsPopupShowing(aEvent, aInsertPoint) {
         break;
       toolbarItem = parent;
     }
+  } else {
+    toolbarItem = null;
   }
 
   // Right-clicking on an empty part of the tabstrip will exit
@@ -4278,8 +4283,15 @@ function onViewToolbarCommand(aEvent) {
 }
 
 function setToolbarVisibility(toolbar, isVisible) {
-  var hidingAttribute = toolbar.getAttribute("type") == "menubar" ?
-                        "autohide" : "collapsed";
+  let hidingAttribute;
+  if (toolbar.getAttribute("type") == "menubar") {
+    hidingAttribute = "autohide";
+#ifdef MOZ_WIDGET_GTK
+    Services.prefs.setBoolPref("ui.key.menuAccessKeyFocuses", !isVisible);
+#endif
+  } else {
+    hidingAttribute = "collapsed";
+  }
 
   toolbar.setAttribute(hidingAttribute, !isVisible);
   document.persist(toolbar.id, hidingAttribute);
@@ -4792,9 +4804,8 @@ const nodeToShortcutMap = {
   "tabview-button": "key_tabview",
 };
 const gDynamicTooltipCache = new Map();
-function UpdateDynamicShortcutTooltipText(popupTriggerNode) {
-  let label = document.getElementById("dynamic-shortcut-tooltip-label");
-  let nodeId = popupTriggerNode.id;
+function UpdateDynamicShortcutTooltipText(aTooltip) {
+  let nodeId = aTooltip.triggerNode.id;
   if (!gDynamicTooltipCache.has(nodeId) && nodeId in nodeToTooltipMap) {
     let strId = nodeToTooltipMap[nodeId];
     let args = [];
@@ -4807,8 +4818,7 @@ function UpdateDynamicShortcutTooltipText(popupTriggerNode) {
     }
     gDynamicTooltipCache.set(nodeId, gNavigatorBundle.getFormattedString(strId, args));
   }
-  let desiredLabel = gDynamicTooltipCache.get(nodeId);
-  label.setAttribute("value", desiredLabel);
+  aTooltip.setAttribute("label", gDynamicTooltipCache.get(nodeId));
 }
 
 /**

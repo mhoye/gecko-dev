@@ -45,7 +45,7 @@
 #include "nsFrameTraversal.h"
 #include "nsRange.h"
 #include "nsITextControlFrame.h"
-#include "nsINameSpaceManager.h"
+#include "nsNameSpaceManager.h"
 #include "nsIPercentHeightObserver.h"
 #include "nsStyleStructInlines.h"
 #include <algorithm>
@@ -1040,11 +1040,10 @@ nsIFrame::Preserves3DChildren() const
 bool
 nsIFrame::Preserves3D() const
 {
-  if (!GetParent() || !GetParent()->Preserves3DChildren() ||
-      !StyleDisplay()->HasTransform(this)) {
+  if (!GetParent() || !GetParent()->Preserves3DChildren()) {
     return false;
   }
-  return true;
+  return StyleDisplay()->HasTransform(this) || StyleDisplay()->BackfaceIsHidden();
 }
 
 bool
@@ -1058,16 +1057,14 @@ nsIFrame::HasPerspective() const
     return false;
   }
   const nsStyleDisplay* parentDisp = parentStyleContext->StyleDisplay();
-  return parentDisp->mChildPerspective.GetUnit() == eStyleUnit_Coord &&
-         parentDisp->mChildPerspective.GetCoordValue() > 0.0;
+  return parentDisp->mChildPerspective.GetUnit() == eStyleUnit_Coord;
 }
 
 bool
 nsIFrame::ChildrenHavePerspective() const
 {
   const nsStyleDisplay *disp = StyleDisplay();
-  return disp->mChildPerspective.GetUnit() == eStyleUnit_Coord &&
-         disp->mChildPerspective.GetCoordValue() > 0.0;
+  return disp->mChildPerspective.GetUnit() == eStyleUnit_Coord;
 }
 
 nsRect
@@ -1351,7 +1348,7 @@ public:
 #endif
 
   virtual void Paint(nsDisplayListBuilder* aBuilder,
-                     nsRenderingContext* aCtx);
+                     nsRenderingContext* aCtx) MOZ_OVERRIDE;
   NS_DISPLAY_DECL_NAME("SelectionOverlay", TYPE_SELECTION_OVERLAY)
 private:
   int16_t mSelectionValue;
@@ -1724,7 +1721,15 @@ WrapPreserve3DListInternal(nsIFrame* aFrame, nsDisplayListBuilder *aBuilder, nsD
           break;
         }
         default: {
-          aTemp->AppendToTop(item);
+          if (childFrame->StyleDisplay()->BackfaceIsHidden()) {
+            if (!aTemp->IsEmpty()) {
+              aOutput->AppendToTop(new (aBuilder) nsDisplayTransform(aBuilder, aFrame, aTemp, aIndex++));
+            }
+
+            aOutput->AppendToTop(new (aBuilder) nsDisplayTransform(aBuilder, childFrame, item, aIndex++));
+          } else {
+            aTemp->AppendToTop(item);
+          }
           break;
         }
       } 
@@ -2024,6 +2029,19 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
     }
   }
 
+  /* If adding both a nsDisplayBlendContainer and a nsDisplayMixBlendMode to the
+   * same list, the nsDisplayBlendContainer should be added first. This only
+   * happens when the element creating this stacking context has mix-blend-mode
+   * and also contains a child which has mix-blend-mode.
+   * The nsDisplayBlendContainer must be added to the list first, so it does not
+   * isolate the containing element blending as well.
+   */
+
+  if (aBuilder->ContainsBlendMode()) {
+      resultList.AppendNewToTop(
+        new (aBuilder) nsDisplayBlendContainer(aBuilder, this, &resultList));
+  }
+
   /* If there's blending, wrap up the list in a blend-mode item. Note
    * that opacity can be applied before blending as the blend color is
    * not affected by foreground opacity (only background alpha).
@@ -2032,11 +2050,6 @@ nsIFrame::BuildDisplayListForStackingContext(nsDisplayListBuilder* aBuilder,
   if (useBlendMode && !resultList.IsEmpty()) {
     resultList.AppendNewToTop(
         new (aBuilder) nsDisplayMixBlendMode(aBuilder, this, &resultList));
-  }
-  
-  if (aBuilder->ContainsBlendMode()) {
-      resultList.AppendNewToTop(
-        new (aBuilder) nsDisplayBlendContainer(aBuilder, this, &resultList));
   }
 
   CreateOwnLayerIfNeeded(aBuilder, &resultList);
@@ -2182,6 +2195,9 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   const nsStylePosition* pos = child->StylePosition();
   bool isVisuallyAtomic = child->HasOpacity()
     || child->IsTransformed()
+    // strictly speaking, 'perspective' doesn't require visual atomicity,
+    // but the spec says it acts like the rest of these
+    || disp->mChildPerspective.GetUnit() == eStyleUnit_Coord
     || disp->mMixBlendMode != NS_STYLE_BLEND_NORMAL
     || nsSVGIntegrationUtils::UsingEffectsForFrame(child);
 
@@ -2195,6 +2211,7 @@ nsIFrame::BuildDisplayListForChild(nsDisplayListBuilder*   aBuilder,
   if (isVisuallyAtomic || isPositioned || (!isSVG && disp->IsFloating(child)) ||
       ((disp->mClipFlags & NS_STYLE_CLIP_RECT) &&
        IsSVGContentWithCSSClip(child)) ||
+       (disp->mWillChangeBitField & NS_STYLE_WILL_CHANGE_STACKING_CONTEXT) ||
       (aFlags & DISPLAY_CHILD_FORCE_STACKING_CONTEXT)) {
     // If you change this, also change IsPseudoStackingContextFromStyle()
     pseudoStackingContext = true;
@@ -3787,7 +3804,7 @@ nsIFrame::InlinePrefWidthData::ForceBreak(nsRenderingContext *aRenderingContext)
       const nsStyleDisplay *floatDisp = floatInfo.Frame()->StyleDisplay();
       if (floatDisp->mBreakType == NS_STYLE_CLEAR_LEFT ||
           floatDisp->mBreakType == NS_STYLE_CLEAR_RIGHT ||
-          floatDisp->mBreakType == NS_STYLE_CLEAR_LEFT_AND_RIGHT) {
+          floatDisp->mBreakType == NS_STYLE_CLEAR_BOTH) {
         nscoord floats_cur = NSCoordSaturatingAdd(floats_cur_left,
                                                   floats_cur_right);
         if (floats_cur > floats_done)
@@ -8373,9 +8390,12 @@ nsIFrame::DestroyRegion(void* aPropertyValue)
 bool
 nsIFrame::IsPseudoStackingContextFromStyle() {
   const nsStyleDisplay* disp = StyleDisplay();
+  // If you change this, also change the computation of pseudoStackingContext
+  // in BuildDisplayListForChild()
   return disp->mOpacity != 1.0f ||
          disp->IsPositioned(this) ||
-         disp->IsFloating(this);
+         disp->IsFloating(this) ||
+         (disp->mWillChangeBitField & NS_STYLE_WILL_CHANGE_STACKING_CONTEXT);
 }
 
 Element*

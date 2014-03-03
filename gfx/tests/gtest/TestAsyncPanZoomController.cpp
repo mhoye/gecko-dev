@@ -16,6 +16,7 @@
 #include "base/task.h"
 #include "Layers.h"
 #include "TestLayers.h"
+#include "gfxPrefs.h"
 
 using namespace mozilla;
 using namespace mozilla::gfx;
@@ -28,6 +29,26 @@ using ::testing::MockFunction;
 using ::testing::InSequence;
 
 class Task;
+
+class AsyncPanZoomControllerTester : public ::testing::Test {
+protected:
+  virtual void SetUp() {
+    gfxPrefs::One();
+  }
+  virtual void TearDown() {
+    gfxPrefs::Destroy();
+  }
+};
+
+class APZCTreeManagerTester : public ::testing::Test {
+protected:
+  virtual void SetUp() {
+    gfxPrefs::One();
+  }
+  virtual void TearDown() {
+    gfxPrefs::Destroy();
+  }
+};
 
 class MockContentController : public GeckoContentController {
 public:
@@ -331,7 +352,7 @@ TEST(AsyncPanZoomController, Pinch) {
   fm.mScrollOffset = CSSPoint(300, 300);
   fm.mZoom = CSSToScreenScale(2.0);
   apzc->SetFrameMetrics(fm);
-  apzc->UpdateZoomConstraints(ZoomConstraints(true, CSSToScreenScale(0.25), CSSToScreenScale(4.0)));
+  apzc->UpdateZoomConstraints(ZoomConstraints(true, true, CSSToScreenScale(0.25), CSSToScreenScale(4.0)));
   // the visible area of the document in CSS pixels is x=300 y=300 w=50 h=100
 
   EXPECT_CALL(*mcc, SendAsyncScrollDOMEvent(_,_,_)).Times(AtLeast(1));
@@ -408,7 +429,7 @@ TEST(AsyncPanZoomController, Overzoom) {
   fm.mScrollOffset = CSSPoint(10, 0);
   fm.mZoom = CSSToScreenScale(1.0);
   apzc->SetFrameMetrics(fm);
-  apzc->UpdateZoomConstraints(ZoomConstraints(true, CSSToScreenScale(0.25), CSSToScreenScale(4.0)));
+  apzc->UpdateZoomConstraints(ZoomConstraints(true, true, CSSToScreenScale(0.25), CSSToScreenScale(4.0)));
   // the visible area of the document in CSS pixels is x=10 y=0 w=100 h=100
 
   EXPECT_CALL(*mcc, SendAsyncScrollDOMEvent(_,_,_)).Times(AtLeast(1));
@@ -544,7 +565,7 @@ TEST(AsyncPanZoomController, ComplexTransform) {
   EXPECT_EQ(ScreenPoint(135, 90), pointOut);
 }
 
-TEST(AsyncPanZoomController, Pan) {
+TEST_F(AsyncPanZoomControllerTester, Pan) {
   DoPanTest(true, false, mozilla::layers::AllowedTouchBehavior::NONE);
 }
 
@@ -553,24 +574,24 @@ TEST(AsyncPanZoomController, Pan) {
 // According to the pointer-events/touch-action spec AUTO and PAN_Y touch-action values allow vertical
 // scrolling while NONE and PAN_X forbid it. The first parameter of DoPanTest method specifies this
 // behavior.
-TEST(AsyncPanZoomController, PanWithTouchActionAuto) {
+TEST_F(AsyncPanZoomControllerTester, PanWithTouchActionAuto) {
   DoPanTest(true, true,
             mozilla::layers::AllowedTouchBehavior::HORIZONTAL_PAN | mozilla::layers::AllowedTouchBehavior::VERTICAL_PAN);
 }
 
-TEST(AsyncPanZoomController, PanWithTouchActionNone) {
+TEST_F(AsyncPanZoomControllerTester, PanWithTouchActionNone) {
   DoPanTest(false, true, 0);
 }
 
-TEST(AsyncPanZoomController, PanWithTouchActionPanX) {
+TEST_F(AsyncPanZoomControllerTester, PanWithTouchActionPanX) {
   DoPanTest(false, true, mozilla::layers::AllowedTouchBehavior::HORIZONTAL_PAN);
 }
 
-TEST(AsyncPanZoomController, PanWithTouchActionPanY) {
+TEST_F(AsyncPanZoomControllerTester, PanWithTouchActionPanY) {
   DoPanTest(true, true, mozilla::layers::AllowedTouchBehavior::VERTICAL_PAN);
 }
 
-TEST(AsyncPanZoomController, PanWithPreventDefault) {
+TEST_F(AsyncPanZoomControllerTester, PanWithPreventDefault) {
   TimeStamp testStartTime = TimeStamp::Now();
   AsyncPanZoomController::SetFrameTime(testStartTime);
 
@@ -608,7 +629,7 @@ TEST(AsyncPanZoomController, PanWithPreventDefault) {
   apzc->Destroy();
 }
 
-TEST(AsyncPanZoomController, Fling) {
+TEST_F(AsyncPanZoomControllerTester, Fling) {
   TimeStamp testStartTime = TimeStamp::Now();
   AsyncPanZoomController::SetFrameTime(testStartTime);
 
@@ -638,7 +659,7 @@ TEST(AsyncPanZoomController, Fling) {
   }
 }
 
-TEST(AsyncPanZoomController, OverScrollPanning) {
+TEST_F(AsyncPanZoomControllerTester, OverScrollPanning) {
   TimeStamp testStartTime = TimeStamp::Now();
   AsyncPanZoomController::SetFrameTime(testStartTime);
 
@@ -673,7 +694,7 @@ TEST(AsyncPanZoomController, ShortPress) {
 
   apzc->SetFrameMetrics(TestFrameMetrics());
   apzc->NotifyLayersUpdated(TestFrameMetrics(), true);
-  apzc->UpdateZoomConstraints(ZoomConstraints(false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
+  apzc->UpdateZoomConstraints(ZoomConstraints(false, false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
 
   int time = 0;
   nsEventStatus status = ApzcTap(apzc, 10, 10, time, 100, mcc.get());
@@ -697,7 +718,7 @@ TEST(AsyncPanZoomController, MediumPress) {
 
   apzc->SetFrameMetrics(TestFrameMetrics());
   apzc->NotifyLayersUpdated(TestFrameMetrics(), true);
-  apzc->UpdateZoomConstraints(ZoomConstraints(false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
+  apzc->UpdateZoomConstraints(ZoomConstraints(false, false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
 
   int time = 0;
   nsEventStatus status = ApzcTap(apzc, 10, 10, time, 400, mcc.get());
@@ -722,7 +743,7 @@ DoLongPressTest(bool aShouldUseTouchAction, uint32_t aBehavior) {
 
   apzc->SetFrameMetrics(TestFrameMetrics());
   apzc->NotifyLayersUpdated(TestFrameMetrics(), true);
-  apzc->UpdateZoomConstraints(ZoomConstraints(false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
+  apzc->UpdateZoomConstraints(ZoomConstraints(false, false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
 
   nsTArray<uint32_t> values;
   values.AppendElement(aBehavior);
@@ -785,7 +806,7 @@ TEST(AsyncPanZoomController, LongPressPreventDefault) {
 
   apzc->SetFrameMetrics(TestFrameMetrics());
   apzc->NotifyLayersUpdated(TestFrameMetrics(), true);
-  apzc->UpdateZoomConstraints(ZoomConstraints(false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
+  apzc->UpdateZoomConstraints(ZoomConstraints(false, false, CSSToScreenScale(1.0), CSSToScreenScale(1.0)));
 
   EXPECT_CALL(*mcc, SendAsyncScrollDOMEvent(_,_,_)).Times(0);
   EXPECT_CALL(*mcc, RequestContentRepaint(_)).Times(0);
@@ -999,7 +1020,7 @@ TEST(APZCTreeManager, HitTesting1) {
 }
 
 // A more involved hit testing test that involves css and async transforms.
-TEST(APZCTreeManager, HitTesting2) {
+TEST_F(APZCTreeManagerTester, HitTesting2) {
   nsTArray<nsRefPtr<Layer> > layers;
   nsRefPtr<LayerManager> lm;
   nsRefPtr<Layer> root = CreateTestLayerTree2(lm, layers);

@@ -75,6 +75,7 @@ public:
     PLayerTransactionParent::DeallocShmem(aShmem);
   }
 
+  virtual bool IsSameProcess() const MOZ_OVERRIDE;
 
 protected:
   virtual bool RecvUpdate(const EditArray& cset,
@@ -89,6 +90,7 @@ protected:
                                 const bool& scheduleComposite) MOZ_OVERRIDE;
 
   virtual bool RecvClearCachedResources() MOZ_OVERRIDE;
+  virtual bool RecvForceComposite() MOZ_OVERRIDE;
   virtual bool RecvGetOpacity(PLayerParent* aParent,
                               float* aOpacity) MOZ_OVERRIDE;
   virtual bool RecvGetTransform(PLayerParent* aParent,

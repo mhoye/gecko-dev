@@ -189,7 +189,7 @@ this.WebappManager = {
   },
 
   autoInstall: function(aData) {
-    let oldApp = DOMApplicationRegistry.getAppByManifestURL(aData.manifestUrl);
+    let oldApp = DOMApplicationRegistry.getAppByManifestURL(aData.manifestURL);
     if (oldApp) {
       // If the app is already installed, update the existing installation.
       this._autoUpdate(aData, oldApp);
@@ -203,7 +203,7 @@ this.WebappManager = {
       }
     };
 
-    let origin = Services.io.newURI(aData.manifestUrl, null, null).prePath;
+    let origin = Services.io.newURI(aData.manifestURL, null, null).prePath;
 
     let message = aData.request || {
       app: {
@@ -222,7 +222,7 @@ this.WebappManager = {
     // The manifest url may be subtly different between the
     // time the APK was built and the APK being installed.
     // Thus, we should take the APK as the source of truth.
-    message.app.manifestURL = aData.manifestUrl;
+    message.app.manifestURL = aData.manifestURL;
     message.app.manifest = aData.manifest;
     message.app.apkPackageName = aData.apkPackageName;
     message.profilePath = aData.profilePath;
@@ -245,15 +245,6 @@ this.WebappManager = {
 
   _autoUpdate: function(aData, aOldApp) { return Task.spawn((function*() {
     log("_autoUpdate app of type " + aData.type);
-
-    // The data object has a manifestUrl property for the manifest URL,
-    // but updateHostedApp expects it to be called manifestURL, and we pass
-    // the data object to it, so we need to change the name.
-    // TODO: rename this to manifestURL upstream, so the data object always has
-    // a consistent name for the property (even if we name it differently
-    // internally).
-    aData.manifestURL = aData.manifestUrl;
-    delete aData.manifestUrl;
 
     if (aData.type == "hosted") {
       let oldManifest = yield DOMApplicationRegistry.getManifestFor(aData.manifestURL);

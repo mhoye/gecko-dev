@@ -508,8 +508,16 @@ WebGLContext::CopyTexImage2D(GLenum target,
         return;
     }
 
-    if (mBoundFramebuffer && !mBoundFramebuffer->CheckAndInitializeAttachments())
-        return ErrorInvalidFramebufferOperation("copyTexImage2D: incomplete framebuffer");
+    if (mBoundFramebuffer) {
+        if (!mBoundFramebuffer->CheckAndInitializeAttachments())
+            return ErrorInvalidFramebufferOperation("copyTexImage2D: incomplete framebuffer");
+
+        GLenum readPlaneBits = LOCAL_GL_COLOR_BUFFER_BIT;
+        if (!mBoundFramebuffer->HasCompletePlanes(readPlaneBits)) {
+            return ErrorInvalidOperation("copyTexImage2D: Read source attachment doesn't have the"
+                                         " correct color/depth/stencil type.");
+        }
+    }
 
     bool texFormatRequiresAlpha = internalformat == LOCAL_GL_RGBA ||
                                   internalformat == LOCAL_GL_ALPHA ||
@@ -613,9 +621,16 @@ WebGLContext::CopyTexSubImage2D(GLenum target,
         return ErrorInvalidOperation("copyTexSubImage2D: a base internal format of DEPTH_COMPONENT or DEPTH_STENCIL isn't supported");
     }
 
-    if (mBoundFramebuffer)
+    if (mBoundFramebuffer) {
         if (!mBoundFramebuffer->CheckAndInitializeAttachments())
             return ErrorInvalidFramebufferOperation("copyTexSubImage2D: incomplete framebuffer");
+
+        GLenum readPlaneBits = LOCAL_GL_COLOR_BUFFER_BIT;
+        if (!mBoundFramebuffer->HasCompletePlanes(readPlaneBits)) {
+            return ErrorInvalidOperation("copyTexSubImage2D: Read source attachment doesn't have the"
+                                         " correct color/depth/stencil type.");
+        }
+    }
 
     bool texFormatRequiresAlpha = (internalFormat == LOCAL_GL_RGBA ||
                                    internalFormat == LOCAL_GL_ALPHA ||
@@ -2307,6 +2322,12 @@ WebGLContext::ReadPixels(GLint x, GLint y, GLsizei width,
         // prevent readback of arbitrary video memory through uninitialized renderbuffers!
         if (!mBoundFramebuffer->CheckAndInitializeAttachments())
             return ErrorInvalidFramebufferOperation("readPixels: incomplete framebuffer");
+
+        GLenum readPlaneBits = LOCAL_GL_COLOR_BUFFER_BIT;
+        if (!mBoundFramebuffer->HasCompletePlanes(readPlaneBits)) {
+            return ErrorInvalidOperation("readPixels: Read source attachment doesn't have the"
+                                         " correct color/depth/stencil type.");
+        }
     }
     // Now that the errors are out of the way, on to actually reading
 
@@ -3342,6 +3363,12 @@ WebGLContext::CompressedTexImage2D(GLenum target, GLint level, GLenum internalfo
         return;
     }
 
+    if (!ValidateCompTexImageSize(target, level, internalformat, 0, 0,
+                                  width, height, width, height, func))
+    {
+        return;
+    }
+
     MakeContextCurrent();
     gl->fCompressedTexImage2D(target, level, internalformat, width, height, border, byteLength, view.Data());
     WebGLTexture* tex = activeBoundTextureForTarget(target);
@@ -3376,6 +3403,10 @@ WebGLContext::CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset,
     MOZ_ASSERT(tex);
     WebGLTexture::ImageInfo& levelInfo = tex->ImageInfoAt(target, level);
 
+    uint32_t byteLength = view.Length();
+    if (!ValidateCompTexImageDataSize(target, format, width, height, byteLength, func))
+        return;
+
     if (!ValidateCompTexImageSize(target, level, format,
                                   xoffset, yoffset,
                                   width, height,
@@ -3384,10 +3415,6 @@ WebGLContext::CompressedTexSubImage2D(GLenum target, GLint level, GLint xoffset,
     {
         return;
     }
-
-    uint32_t byteLength = view.Length();
-    if (!ValidateCompTexImageDataSize(target, format, width, height, byteLength, func))
-        return;
 
     if (levelInfo.HasUninitializedImageData())
         tex->DoDeferredImageInitialization(target, level);

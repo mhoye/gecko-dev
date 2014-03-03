@@ -37,7 +37,6 @@
 #include "nsMathUtils.h"                // for NS_round
 #include "nsPoint.h"                    // for nsPoint
 #include "nsTArray.h"                   // for nsTArray, nsTArray_Impl, etc
-#include "nsTraceRefcnt.h"              // for MOZ_COUNT_CTOR, etc
 #include "GeckoProfiler.h"
 #include "mozilla/layers/TextureHost.h"
 #include "mozilla/layers/AsyncCompositionManager.h"
@@ -97,12 +96,12 @@ ShadowAfter(const OpInsertAfter& op)
 }
 
 static ShadowLayerParent*
-ShadowContainer(const OpAppendChild& op)
+ShadowContainer(const OpPrependChild& op)
 {
   return cast(op.containerParent());
 }
 static ShadowLayerParent*
-ShadowChild(const OpAppendChild& op)
+ShadowChild(const OpPrependChild& op)
 {
   return cast(op.childLayerParent());
 }
@@ -204,10 +203,13 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
     return true;
   }
 
+  // Clear fence handles used in previsou transaction.
+  ClearPrevFenceHandles();
+
   EditReplyVector replyv;
 
   {
-    AutoResolveRefLayers resolve(mShadowLayersManager->GetCompositionManager());
+    AutoResolveRefLayers resolve(mShadowLayersManager->GetCompositionManager(this));
     layer_manager()->BeginTransaction();
   }
 
@@ -394,7 +396,11 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
       MOZ_LAYERS_LOG(("[ParentSide] SetRoot"));
 
       Layer* newRoot = AsLayerComposite(edit.get_OpSetRoot())->AsLayer();
+      if (!newRoot) {
+        return false;
+      }
       if (newRoot->GetParent()) {
+        // newRoot is not a root!
         return false;
       }
       mRoot = newRoot;
@@ -416,10 +422,10 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
       }
       break;
     }
-    case Edit::TOpAppendChild: {
-      MOZ_LAYERS_LOG(("[ParentSide] AppendChild"));
+    case Edit::TOpPrependChild: {
+      MOZ_LAYERS_LOG(("[ParentSide] PrependChild"));
 
-      const OpAppendChild& oac = edit.get_OpAppendChild();
+      const OpPrependChild& oac = edit.get_OpPrependChild();
       Layer* child = ShadowChild(oac)->AsLayer();
       if (!child) {
         return false;
@@ -510,7 +516,7 @@ LayerTransactionParent::RecvUpdate(const InfallibleTArray<Edit>& cset,
   }
 
   {
-    AutoResolveRefLayers resolve(mShadowLayersManager->GetCompositionManager());
+    AutoResolveRefLayers resolve(mShadowLayersManager->GetCompositionManager(this));
     layer_manager()->EndTransaction(nullptr, nullptr, LayerManager::END_NO_IMMEDIATE_REDRAW);
   }
 
@@ -642,6 +648,14 @@ LayerTransactionParent::RecvClearCachedResources()
   return true;
 }
 
+bool
+LayerTransactionParent::RecvForceComposite()
+{
+  mShadowLayersManager->ForceComposite(this);
+  return true;
+}
+
+
 PGrallocBufferParent*
 LayerTransactionParent::AllocPGrallocBufferParent(const IntSize& aSize,
                                                   const uint32_t& aFormat,
@@ -705,6 +719,11 @@ bool
 LayerTransactionParent::DeallocPTextureParent(PTextureParent* actor)
 {
   return TextureHost::DestroyIPDLActor(actor);
+}
+
+bool LayerTransactionParent::IsSameProcess() const
+{
+  return OtherProcess() == ipc::kInvalidProcessHandle;
 }
 
 } // namespace layers
